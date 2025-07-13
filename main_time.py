@@ -1,28 +1,41 @@
 # main_time.py
 # - 타임 트라이얼 주행용 메인 루프
 
-from utils.lane_detect import LaneDetect
+from utils.lane_detect_v3 import LaneDetectV3
 from utils.steering_fsm import SteeringFSM
 import time
 
+
 if __name__ == "__main__":
-    detector = LaneDetect()
-    fsm = SteeringFSM(Kp=0.01, dead_zone=10)
+    detector = LaneDetectV3()
+    fsm = SteeringFSM(
+        k=0.1,
+        velocity=0.5,
+        pixel_to_meter=0.00427  # ← 여기! 측정한 값 입력
+    )
+    detector.send_serial_command("C")
 
     print("[INFO] Time trial mode started. Press Ctrl+C to stop.")
 
     try:
         while True:
-            result = detector.compute_lane_control()
+            result = detector.detect_lane_and_steering()
             if result is None:
                 continue
 
             cte = result['cte']
-            cmd = fsm.update(cte)
-            detector.send_serial_command(cmd)
+            heading = result['heading']
 
-            time.sleep(0.05)  # 20Hz 제어 주기 (필요 시 조정)
+            angle = fsm.compute_steering_angle(cte, heading)
+            detector.send_serial_command(f"T{angle:.2f}\n")
+            detector.send_serial_command("F")
+
+            # detector.cam.arduino.write(f"T{angle:.2f}\n".encode())
+            # detector.cam.arduino.write(b"F")
+
+            time.sleep(0.01)
 
     except KeyboardInterrupt:
         print("[INFO] Time trial stopped by user.")
         detector.send_serial_command("S")
+        # detector.cam.arduino.write(b"S")

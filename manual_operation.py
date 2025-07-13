@@ -2,15 +2,15 @@
 # - 차선 기반 주행 실험용 코드 (방향키 수동 조종 버전)
 
 import cv2
-from utils.lane_detect import LaneDetect
+from utils.lane_detect_v3 import LaneDetectV3
 
 
-lane_detector = LaneDetect()
+lane_detector = LaneDetectV3()
 print("[INFO] 방향키 ← ↑ → ↓ 로 수동 조향 테스트를 시작합니다. ESC로 종료")
 
 while True:
     # 프레임 읽기 및 디버깅용 표시
-    _ = lane_detector.compute_lane_control()
+    _ = lane_detector.detect_lane_and_steering()
 
     key = cv2.waitKey(10) & 0xFF
 
