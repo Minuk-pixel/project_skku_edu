@@ -29,8 +29,8 @@ class LaneDetectV3:
         # self.image_height = 520
         # self.image_center_x = self.image_width // 2
 
-        self.roi_top = 150
-        self.roi_bottom = 550
+        self.roi_top = 250
+        self.roi_bottom = 570
         self.roi_left = 50
         self.roi_right = 550
         self.image_width = self.roi_right - self.roi_left
@@ -39,9 +39,9 @@ class LaneDetectV3:
 
         self.bottom_y = self.image_height - 1
 
-        self.prev_left_fit = np.array([0, 0, 0])  # ✅ 2차 다항식용
-        self.prev_right_fit = np.array([0, 0, 0])
-        self.alpha = 0.0  # EMA smoothing
+        self.prev_left_fit = np.array([0, 0])
+        self.prev_right_fit = np.array([0, 0])
+        self.alpha = 0.2  # EMA smoothing
         self.prev_cte = 0.0
         self.prev_heading = 0.0
 
@@ -49,39 +49,24 @@ class LaneDetectV3:
         if len(x) < 50:
             print("[WARN] too few points for fitting")
             return None
+        X = np.array(x).reshape(-1, 1)
+        Y = np.array(y)
 
-        X = np.array(y).reshape(-1, 1)
-        Y = np.array(x)
-
-        model = make_pipeline(
-            PolynomialFeatures(degree=2),
-            RANSACRegressor(
-                estimator=LinearRegression(),  # 구버전 호환
-                residual_threshold=5.0,
-                max_trials=50
-            )
+        model = RANSACRegressor(
+            estimator=LinearRegression(),  # sklearn ≥ 0.24일 경우
+            residual_threshold=5.0,
+            max_trials=50
         )
 
         try:
             model.fit(X, Y)
+            slope = model.estimator_.coef_[0]
+            intercept = model.estimator_.intercept_
         except Exception as e:
             print(f"[ERROR] RANSAC fitting failed: {e}")
             return None
 
-        # 계수 추출
-        try:
-            coef = model.named_steps['ransacregressor'].estimator_.coef_
-            intercept = model.named_steps['ransacregressor'].estimator_.intercept_
-            print(f"[DEBUG] RANSAC coef: {coef}, intercept: {intercept}, len: {len(coef)}")
-        except Exception as e:
-            print(f"[ERROR] Could not extract coef: {e}")
-            return None
-
-        if len(coef) < 3:
-            print("[WARN] insufficient coef length → rejected")
-            return None
-
-        return np.array([coef[2], coef[1], intercept])
+        return np.array([slope, intercept])
 
     def send_serial_command(self, command):
         if self.ser is not None and self.ser.is_open:
@@ -90,8 +75,8 @@ class LaneDetectV3:
         else:
             print("[WARN] Serial not connected.")
 
-    def compute_heading(self, fit, y):
-        return 2 * fit[0] * y + fit[1]
+    def compute_heading(self, fit):
+        return fit[0]  # heading = slope
 
     def detect_lane_and_steering(self):
         ret, frame = self.cap1.read()
@@ -132,7 +117,7 @@ class LaneDetectV3:
         #     new_right_fit = None
 
         # --- 스무딩 적용 (EMA) ---
-        self.alpha = 0.0
+        self.alpha = 0.2
         if new_left_fit is not None:
             if new_left_fit is not None and self.prev_left_fit.shape != new_left_fit.shape:
                 self.prev_left_fit = np.zeros_like(new_left_fit)
@@ -163,8 +148,9 @@ class LaneDetectV3:
         #     right_fit = self.prev_right_fit
 
         ploty = np.linspace(0, self.image_height - 1, self.image_height)
-        left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2] if left_fit is not None else None
-        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2] if right_fit is not None else None
+        # Solve for x instead: x = (y - b) / a
+        left_fitx = (ploty - left_fit[1]) / left_fit[0] if left_fit is not None else None
+        right_fitx = (ploty - right_fit[1]) / right_fit[0] if right_fit is not None else None
 
         # overlay = bev.copy()
         # for i in range(len(ploty)):
@@ -202,14 +188,11 @@ class LaneDetectV3:
         cte_y = int(self.image_height * 0.6)  # 조향 기준이 될 y 지점
 
         if left_fit is not None and right_fit is not None:
-            raw_heading = (self.compute_heading(left_fit, cte_y) + self.compute_heading(right_fit, cte_y)) / 2.0
-
+            raw_heading = (self.compute_heading(left_fit) + self.compute_heading(right_fit)) / 2.0
         elif left_fit is not None:
-            raw_heading = self.compute_heading(left_fit, cte_y)
-
+            raw_heading = self.compute_heading(left_fit)
         elif right_fit is not None:
-            raw_heading = self.compute_heading(right_fit, cte_y)
-
+            raw_heading = self.compute_heading(right_fit)
         else:
             raw_heading = 0.0
 
