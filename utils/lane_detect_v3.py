@@ -32,7 +32,7 @@ class LaneDetectV3:
 
         self.prev_left_fit = np.array([0., 0.])
         self.prev_right_fit = np.array([0., 0.])
-        self.alpha = 0.8  # EMA smoothing
+        self.alpha = 0.1  # EMA smoothing
         self.prev_cte = 0.0
         self.prev_heading = 0.0
 
@@ -42,6 +42,7 @@ class LaneDetectV3:
         X = np.array(y).reshape(-1, 1)
         Y = np.array(x)
         model = RANSACRegressor()
+
         model.fit(X, Y)
         slope = model.estimator_.coef_[0]
         intercept = model.estimator_.intercept_
@@ -79,20 +80,29 @@ class LaneDetectV3:
         #반대쪽 차선 픽셀이 섞이는 것 방지
         left_valid = (
                 len(left_x) > 30 and
-                np.max(left_x) < self.image_center_x * 0.95 and
-                np.mean(left_x) < self.image_center_x * 0.9
+                np.max(left_x) < self.image_center_x - 30 and
+                np.mean(left_x) < self.image_center_x - 40
         )
 
         right_valid = (
                 len(right_x) > 30 and
-                np.min(right_x) > self.image_center_x * 1.05 and
-                np.mean(right_x) > self.image_center_x * 1.1
+                np.min(right_x) > self.image_center_x + 30 and
+                np.mean(right_x) > self.image_center_x + 40
         )
 
         # left_fit = self.fit_line_ransac(left_x, left_y)
         # right_fit = self.fit_line_ransac(right_x, right_y)
         new_left_fit = self.fit_line_ransac(left_x, left_y) if left_valid else None
         new_right_fit = self.fit_line_ransac(right_x, right_y) if right_valid else None
+
+        # after fitting
+        if new_left_fit is not None and abs(new_left_fit[0]) < 0.05:
+            print("[WARN] left slope too flat → rejected")
+            new_left_fit = None
+
+        if new_right_fit is not None and abs(new_right_fit[0]) < 0.05:
+            print("[WARN] right slope too flat → rejected")
+            new_right_fit = None
 
         # --- 스무딩 적용 (EMA) ---
         self.alpha = 0.1
@@ -188,7 +198,7 @@ class LaneDetectV3:
         # raw_cte = -(lane_center - self.image_center_x)
         # raw_heading = (left_fit[0] + right_fit[0]) / 2.0
 
-        cte = 0.8 * self.prev_cte + 0.2 * raw_cte
+        cte = 0.5 * self.prev_cte + 0.5 * raw_cte
         heading = 0.8 * self.prev_heading + 0.2 * raw_heading
 
         self.prev_cte = cte

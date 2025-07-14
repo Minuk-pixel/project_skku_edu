@@ -14,10 +14,10 @@ class SteeringFSM:
 
         if abs(cte_pixel) < 1e-3:
             # 한쪽 차선만 보이는 상황 → 기울기만 사용
-            steer_rad = heading_angle * 1.0  # 필요시 1.2~1.5까지 튜닝 가능
+            steer_rad = heading_angle * 1  # 필요시 1.2~1.5까지 튜닝 가능
         else:
             # 정상 Stanley 조향
-            steer_rad = heading_angle + math.atan2(self.k * cte, self.velocity + 1e-5)
+            steer_rad = heading_angle * 0.4 + math.atan2(self.k * cte, self.velocity + 1e-5)
 
         steer_deg = math.degrees(steer_rad)
         steer_deg = max(-self.max_angle, min(self.max_angle, steer_deg))
