@@ -32,8 +32,6 @@ class LaneDetectV3:
 
         self.prev_left_fit = np.array([0., 0.])
         self.prev_right_fit = np.array([0., 0.])
-        self.last_update_time = 0
-        self.update_interval = 0.001  # 0.5초마다 업데이트
         self.alpha = 0.8  # EMA smoothing
         self.prev_cte = 0.0
         self.prev_heading = 0.0
@@ -57,9 +55,6 @@ class LaneDetectV3:
             print("[WARN] Serial not connected.")
 
     def detect_lane_and_steering(self):
-        now = time.time()
-        update = (now - self.last_update_time > self.update_interval)
-
         ret, frame = self.cap1.read()
         if not ret:
             print("[WARN] Camera read failed")
@@ -96,16 +91,11 @@ class LaneDetectV3:
 
         # left_fit = self.fit_line_ransac(left_x, left_y)
         # right_fit = self.fit_line_ransac(right_x, right_y)
-        if update:
-            self.last_update_time = now
-            new_left_fit = self.fit_line_ransac(left_x, left_y) if left_valid else None
-            new_right_fit = self.fit_line_ransac(right_x, right_y) if right_valid else None
-        else:
-            new_left_fit = None
-            new_right_fit = None
+        new_left_fit = self.fit_line_ransac(left_x, left_y) if left_valid else None
+        new_right_fit = self.fit_line_ransac(right_x, right_y) if right_valid else None
 
         # --- 스무딩 적용 (EMA) ---
-        self.alpha = 0.8
+        self.alpha = 0.1
         if new_left_fit is not None:
             left_fit = self.alpha * self.prev_left_fit + (1 - self.alpha) * new_left_fit
             self.prev_left_fit = left_fit
@@ -134,16 +124,38 @@ class LaneDetectV3:
         left_fitx = left_fit[0] * ploty + left_fit[1] if left_fit is not None else None
         right_fitx = right_fit[0] * ploty + right_fit[1] if right_fit is not None else None
 
-        overlay = bev.copy()
-        for i in range(len(ploty)):
-            lx = int(left_fitx[i])
-            rx = int(right_fitx[i])
-            py = int(ploty[i])
+        # overlay = bev.copy()
+        # for i in range(len(ploty)):
+        #     lx = int(left_fitx[i])
+        #     rx = int(right_fitx[i])
+        #     py = int(ploty[i])
+        #
+        #     if 0 <= lx < self.image_width:
+        #         cv2.circle(overlay, (lx, py), 1, (255, 0, 0), -1)
+        #     if 0 <= rx < self.image_width:
+        #         cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
 
-            if 0 <= lx < self.image_width:
-                cv2.circle(overlay, (lx, py), 1, (255, 0, 0), -1)
-            if 0 <= rx < self.image_width:
-                cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
+        overlay = bev.copy()
+
+        if left_fitx is not None:
+            valid_left = 0
+            for i in range(len(ploty)):
+                lx = int(left_fitx[i])
+                py = int(ploty[i])
+                if 0 <= lx < self.image_width:
+                    valid_left += 1
+                    cv2.circle(overlay, (lx, py), 1, (255, 0, 0), -1)
+            print(f"[DEBUG] Left lane draw points: {valid_left}")
+
+        if right_fitx is not None:
+            valid_right = 0
+            for i in range(len(ploty)):
+                rx = int(right_fitx[i])
+                py = int(ploty[i])
+                if 0 <= rx < self.image_width:
+                    valid_right += 1
+                    cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
+            print(f"[DEBUG] Right lane draw points: {valid_right}")
 
         cte_y = int(self.image_height * 0.6)  # 하단 말고 중간쯤에서 계산
 
