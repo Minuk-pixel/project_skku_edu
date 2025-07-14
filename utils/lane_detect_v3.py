@@ -81,8 +81,18 @@ class LaneDetectV3:
         left_x, left_y = xs[xs < center_x], ys[xs < center_x]
         right_x, right_y = xs[xs >= center_x], ys[xs >= center_x]
 
-        left_valid = len(left_x) > 30 and np.max(left_x) < self.image_center_x
-        right_valid = len(right_x) > 30 and np.min(right_x) > self.image_center_x
+        #반대쪽 차선 픽셀이 섞이는 것 방지
+        left_valid = (
+                len(left_x) > 30 and
+                np.max(left_x) < self.image_center_x * 0.95 and
+                np.mean(left_x) < self.image_center_x * 0.9
+        )
+
+        right_valid = (
+                len(right_x) > 30 and
+                np.min(right_x) > self.image_center_x * 1.05 and
+                np.mean(right_x) > self.image_center_x * 1.1
+        )
 
         # left_fit = self.fit_line_ransac(left_x, left_y)
         # right_fit = self.fit_line_ransac(right_x, right_y)
@@ -121,8 +131,8 @@ class LaneDetectV3:
         #     right_fit = self.prev_right_fit
 
         ploty = np.linspace(0, self.image_height - 1, self.image_height)
-        left_fitx = left_fit[0] * ploty + left_fit[1]
-        right_fitx = right_fit[0] * ploty + right_fit[1]
+        left_fitx = left_fit[0] * ploty + left_fit[1] if left_fit is not None else None
+        right_fitx = right_fit[0] * ploty + right_fit[1] if right_fit is not None else None
 
         overlay = bev.copy()
         for i in range(len(ploty)):
@@ -135,13 +145,36 @@ class LaneDetectV3:
             if 0 <= rx < self.image_width:
                 cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
 
-        left_x_pos = left_fit[0] * self.bottom_y + left_fit[1]
-        right_x_pos = right_fit[0] * self.bottom_y + right_fit[1]
-        lane_center = (left_x_pos + right_x_pos) / 2.0
+        cte_y = int(self.image_height * 0.6)  # 하단 말고 중간쯤에서 계산
 
-        # --- CTE 및 Heading 계산 + 스무딩 ---
-        raw_cte = -(lane_center - self.image_center_x)
-        raw_heading = (left_fit[0] + right_fit[0]) / 2.0
+        if left_fit is not None and right_fit is not None:
+            left_x_pos = left_fit[0] * cte_y + left_fit[1]
+            right_x_pos = right_fit[0] * cte_y + right_fit[1]
+            lane_center = (left_x_pos + right_x_pos) / 2.0
+            raw_cte = -(lane_center - self.image_center_x)
+            raw_heading = (left_fit[0] + right_fit[0]) / 2.0
+
+        elif left_fit is not None:
+            lane_center = None
+            raw_cte = 0.0  # CTE 안 씀
+            raw_heading = left_fit[0]  # 왼쪽 기울기만 조향
+
+        elif right_fit is not None:
+            lane_center = None
+            raw_cte = 0.0
+            raw_heading = right_fit[0]  # 오른쪽 기울기만 조향
+
+        else:
+            raw_cte = 0.0
+            raw_heading = 0.0
+
+        # left_x_pos = left_fit[0] * self.bottom_y + left_fit[1]
+        # right_x_pos = right_fit[0] * self.bottom_y + right_fit[1]
+        # lane_center = (left_x_pos + right_x_pos) / 2.0
+        #
+        # # --- CTE 및 Heading 계산 + 스무딩 ---
+        # raw_cte = -(lane_center - self.image_center_x)
+        # raw_heading = (left_fit[0] + right_fit[0]) / 2.0
 
         cte = 0.8 * self.prev_cte + 0.2 * raw_cte
         heading = 0.8 * self.prev_heading + 0.2 * raw_heading
