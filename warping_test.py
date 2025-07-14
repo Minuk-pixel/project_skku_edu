@@ -5,7 +5,7 @@ import numpy as np
 cap = cv2.VideoCapture(cv2.CAP_DSHOW + 2)
 
 # ✅ 수동으로 지정한 source (원본 영상의 4점) & destination (BEV 평면)
-source = np.float32([[105, 350], [36, 406], [570, 350], [632, 406]])
+source = np.float32([[128, 304], [0, 440], [465, 304], [577, 440]])
 destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
 
 # ✅ 출력 사이즈는 destination 좌표 기준
@@ -25,6 +25,7 @@ while True:
     warped = cv2.warpPerspective(frame, M, (output_width, output_height))
 
     # BEV 이미지만 보여줌
+    cv2.imshow("frame", frame)
     cv2.imshow("BEV (Warped)", warped)
 
     # 종료 조건

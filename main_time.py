@@ -10,8 +10,8 @@ if __name__ == "__main__":
     detector = LaneDetectV3()
     fsm = SteeringFSM(
         k=0.1,
-        velocity=0.5,
-        pixel_to_meter=0.00427  # ← 여기! 측정한 값 입력
+        velocity=0.25,
+        pixel_to_meter=0.0014  # ← 여기! 측정한 값 입력
     )
     detector.send_serial_command("C")
 

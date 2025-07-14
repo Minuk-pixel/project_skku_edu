@@ -4,8 +4,8 @@
 #define STEER_IN2 13
 #define LEFT_IN1 11
 #define LEFT_IN2 10
-#define RIGHT_IN1 8
-#define RIGHT_IN2 9
+#define RIGHT_IN1 9
+#define RIGHT_IN2 8
 
 #define STEER_SPEED 120
 #define MOTOR_SPEED 100
@@ -13,7 +13,7 @@
 //시간측정용 변수
 #define STEER_SPEED_TIME 500
 #define STEER_SPEED_TIME_FAST 500
-#define MOTOR_SPEED_TIME 50
+#define MOTOR_SPEED_TIME 200
 
 
 #define POTENTIOMETER_PIN A5
@@ -80,8 +80,8 @@ void loop() {
 }
 
 void moveForward() {
-  motor_forward(LEFT_IN1, LEFT_IN2, MOTOR_SPEED);
-  motor_forward(RIGHT_IN1, RIGHT_IN2, MOTOR_SPEED);
+  motor_forward(LEFT_IN1, LEFT_IN2, MOTOR_SPEED_TIME);
+  motor_forward(RIGHT_IN1, RIGHT_IN2, MOTOR_SPEED_TIME);
 }
 
 void moveBackward() {

@@ -21,7 +21,7 @@ class LaneDetectV3:
 
         print("[INFO] Arduino serial connected.")
 
-        self.source = np.float32([[105, 350], [49, 406], [570, 350], [632, 406]])
+        self.source = np.float32([[128, 304], [0, 440], [465, 304], [577, 440]])
         self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.transform_matrix = cv2.getPerspectiveTransform(self.source, self.destination)
 
@@ -33,7 +33,7 @@ class LaneDetectV3:
         self.prev_left_fit = np.array([0., 0.])
         self.prev_right_fit = np.array([0., 0.])
         self.last_update_time = 0
-        self.update_interval = 0.1  # 0.5초마다 업데이트
+        self.update_interval = 0.001  # 0.5초마다 업데이트
         self.alpha = 0.8  # EMA smoothing
         self.prev_cte = 0.0
         self.prev_heading = 0.0
