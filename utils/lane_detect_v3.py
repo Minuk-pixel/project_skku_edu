@@ -29,7 +29,7 @@ class LaneDetectV3:
         # self.image_height = 520
         # self.image_center_x = self.image_width // 2
 
-        self.roi_top = 250
+        self.roi_top = 2
         self.roi_bottom = 570
         self.roi_left = 50
         self.roi_right = 550
