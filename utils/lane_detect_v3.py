@@ -92,8 +92,8 @@ class LaneDetectV3:
 
         # left_fit = self.fit_line_ransac(left_x, left_y)
         # right_fit = self.fit_line_ransac(right_x, right_y)
-        new_left_fit = self.fit_line_ransac(left_x, left_y) if left_valid else None
-        new_right_fit = self.fit_line_ransac(right_x, right_y) if right_valid else None
+        new_left_fit = self.fit_line_ransac(left_x, left_y)
+        new_right_fit = self.fit_line_ransac(right_x, right_y)
 
         # after fitting
         if new_left_fit is not None and abs(new_left_fit[0]) < 0.05:
@@ -106,17 +106,13 @@ class LaneDetectV3:
 
         # --- 스무딩 적용 (EMA) ---
         self.alpha = 0.1
-        if new_left_fit is not None:
-            left_fit = self.alpha * self.prev_left_fit + (1 - self.alpha) * new_left_fit
-            self.prev_left_fit = left_fit
-        else:
-            left_fit = self.prev_left_fit
+        if new_left_fit is not None and abs(new_left_fit[0]) > 2.5:
+            print("[REJECT] left_fit too steep")
+            new_left_fit = None
 
-        if new_right_fit is not None:
-            right_fit = self.alpha * self.prev_right_fit + (1 - self.alpha) * new_right_fit
-            self.prev_right_fit = right_fit
-        else:
-            right_fit = self.prev_right_fit
+        if new_right_fit is not None and abs(new_right_fit[0]) > 2.5:
+            print("[REJECT] right_fit too steep")
+            new_right_fit = None
 
         # if left_fit is not None:
         #     left_fit = alpha * self.prev_left_fit + (1 - alpha) * left_fit
@@ -131,8 +127,8 @@ class LaneDetectV3:
         #     right_fit = self.prev_right_fit
 
         ploty = np.linspace(0, self.image_height - 1, self.image_height)
-        left_fitx = left_fit[0] * ploty + left_fit[1] if left_fit is not None else None
-        right_fitx = right_fit[0] * ploty + right_fit[1] if right_fit is not None else None
+        left_fitx = new_left_fit[0] * ploty + new_left_fit[1] if new_left_fit is not None else None
+        right_fitx = new_right_fit[0] * ploty + new_right_fit[1] if new_right_fit is not None else None
 
         # overlay = bev.copy()
         # for i in range(len(ploty)):
@@ -169,22 +165,22 @@ class LaneDetectV3:
 
         cte_y = int(self.image_height * 0.6)  # 하단 말고 중간쯤에서 계산
 
-        if left_fit is not None and right_fit is not None:
-            left_x_pos = left_fit[0] * cte_y + left_fit[1]
-            right_x_pos = right_fit[0] * cte_y + right_fit[1]
+        if new_left_fit is not None and new_right_fit is not None:
+            left_x_pos = new_left_fit[0] * cte_y + new_left_fit[1]
+            right_x_pos = new_right_fit[0] * cte_y + new_right_fit[1]
             lane_center = (left_x_pos + right_x_pos) / 2.0
             raw_cte = -(lane_center - self.image_center_x)
-            raw_heading = (left_fit[0] + right_fit[0]) / 2.0
+            raw_heading = (new_left_fit[0] + new_right_fit[0]) / 2.0
 
-        elif left_fit is not None:
+        elif new_left_fit is not None:
             lane_center = None
             raw_cte = 0.0  # CTE 안 씀
-            raw_heading = left_fit[0]  # 왼쪽 기울기만 조향
+            raw_heading = new_left_fit[0]  # 왼쪽 기울기만 조향
 
-        elif right_fit is not None:
+        elif new_right_fit is not None:
             lane_center = None
             raw_cte = 0.0
-            raw_heading = right_fit[0]  # 오른쪽 기울기만 조향
+            raw_heading = new_right_fit[0]  # 오른쪽 기울기만 조향
 
         else:
             raw_cte = 0.0
@@ -213,8 +209,8 @@ class LaneDetectV3:
         return {
             'cte': cte,
             'heading': heading,
-            'left_fit': left_fit,
-            'right_fit': right_fit,
+            'left_fit': new_left_fit,
+            'right_fit': new_right_fit,
             'frame': frame,
             'overlay': overlay
         }
