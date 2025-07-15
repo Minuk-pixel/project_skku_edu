@@ -55,6 +55,11 @@ class LaneDetectV3:
         else:
             print("[WARN] Serial not connected.")
 
+    def set_lane(self, lane: str):
+        assert lane in ['LEFT', 'RIGHT']
+        self.current_target = lane
+        print(f"[INFO] Lane target changed to {lane}")
+
     def detect_lane_and_steering(self):
         ret, frame = self.cap1.read()
         if not ret:
@@ -104,6 +109,19 @@ class LaneDetectV3:
             print("[WARN] right slope too flat → rejected")
             new_right_fit = None
 
+        # 급격한 기울기 변화 리젝 (차선 끊김 등 노이즈 대응)
+        max_slope_change = 0.5  # 허용 가능한 최대 변화량 (조정 가능)
+
+        if new_left_fit is not None and self.prev_left_fit is not None:
+            if abs(new_left_fit[0] - self.prev_left_fit[0]) > max_slope_change:
+                print("[REJECT] left slope changed too much")
+                new_left_fit = None
+
+        if new_right_fit is not None and self.prev_right_fit is not None:
+            if abs(new_right_fit[0] - self.prev_right_fit[0]) > max_slope_change:
+                print("[REJECT] right slope changed too much")
+                new_right_fit = None
+
         # --- 스무딩 적용 (EMA) ---
         self.alpha = 0.1
         if new_left_fit is not None and abs(new_left_fit[0]) > 2.5:
@@ -114,32 +132,9 @@ class LaneDetectV3:
             print("[REJECT] right_fit too steep")
             new_right_fit = None
 
-        # if left_fit is not None:
-        #     left_fit = alpha * self.prev_left_fit + (1 - alpha) * left_fit
-        #     self.prev_left_fit = left_fit
-        # else:
-        #     left_fit = self.prev_left_fit
-        #
-        # if right_fit is not None:
-        #     right_fit = alpha * self.prev_right_fit + (1 - alpha) * right_fit
-        #     self.prev_right_fit = right_fit
-        # else:
-        #     right_fit = self.prev_right_fit
-
         ploty = np.linspace(0, self.image_height - 1, self.image_height)
         left_fitx = new_left_fit[0] * ploty + new_left_fit[1] if new_left_fit is not None else None
         right_fitx = new_right_fit[0] * ploty + new_right_fit[1] if new_right_fit is not None else None
-
-        # overlay = bev.copy()
-        # for i in range(len(ploty)):
-        #     lx = int(left_fitx[i])
-        #     rx = int(right_fitx[i])
-        #     py = int(ploty[i])
-        #
-        #     if 0 <= lx < self.image_width:
-        #         cv2.circle(overlay, (lx, py), 1, (255, 0, 0), -1)
-        #     if 0 <= rx < self.image_width:
-        #         cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
 
         overlay = bev.copy()
 
@@ -186,13 +181,6 @@ class LaneDetectV3:
             raw_cte = 0.0
             raw_heading = 0.0
 
-        # left_x_pos = left_fit[0] * self.bottom_y + left_fit[1]
-        # right_x_pos = right_fit[0] * self.bottom_y + right_fit[1]
-        # lane_center = (left_x_pos + right_x_pos) / 2.0
-        #
-        # # --- CTE 및 Heading 계산 + 스무딩 ---
-        # raw_cte = -(lane_center - self.image_center_x)
-        # raw_heading = (left_fit[0] + right_fit[0]) / 2.0
 
         cte = 0.5 * self.prev_cte + 0.5 * raw_cte
         heading = 0.8 * self.prev_heading + 0.2 * raw_heading
