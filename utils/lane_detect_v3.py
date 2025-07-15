@@ -25,6 +25,10 @@ class LaneDetectV3:
         self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.transform_matrix = cv2.getPerspectiveTransform(self.source, self.destination)
 
+        self.prev_heading_valid = 0.0  # fallback용 직전 유효 heading
+        self.max_heading_change = 0.15  # 프레임당 heading 변화 최대값
+        self.max_slope_jump = 0.3  # sudden jump reject 기준
+
         self.image_width = 440  # 일반 카메라 프레임 기준 (수정 가능)
         self.image_height = 520
         self.image_center_x = self.image_width // 2
@@ -35,6 +39,7 @@ class LaneDetectV3:
         self.alpha = 0.1  # EMA smoothing
         self.prev_cte = 0.0
         self.prev_heading = 0.0
+        self.current_target = "RIGHT"
 
     def fit_line_ransac(self, x, y):
         if len(x) < 10:
@@ -55,152 +60,83 @@ class LaneDetectV3:
         else:
             print("[WARN] Serial not connected.")
 
+    def set_lane(self, lane: str):
+        assert lane in ['LEFT', 'RIGHT']
+        self.current_target = lane
+        print(f"[INFO] Lane target changed to {lane}")
+
     def detect_lane_and_steering(self):
         ret, frame = self.cap1.read()
         if not ret:
             print("[WARN] Camera read failed")
             return None
 
+        # 1. BEV 변환 및 색상 필터링 (흰 실선만)
         bev = cv2.warpPerspective(frame, self.transform_matrix, (440, 520))
         hsv = cv2.cvtColor(bev, cv2.COLOR_BGR2HSV)
         lower_white = np.array([0, 0, 200])
-        upper_white = np.array([180, 50, 255])
+        upper_white = np.array([180, 40, 255])  # 점선 제거 위해 S 값 조절 가능
         mask = cv2.inRange(hsv, lower_white, upper_white)
 
+        # 2. 모폴로지로 점선 제거 (선택)
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         binary = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
+        # 3. 실선 픽셀 좌표 수집
         points = np.argwhere(binary > 0)
-        ys, xs = points[:, 0], points[:, 1]
-        center_x = self.image_center_x
-
-        left_x, left_y = xs[xs < center_x], ys[xs < center_x]
-        right_x, right_y = xs[xs >= center_x], ys[xs >= center_x]
-
-        #반대쪽 차선 픽셀이 섞이는 것 방지
-        left_valid = (
-                len(left_x) > 30 and
-                np.max(left_x) < self.image_center_x - 30 and
-                np.mean(left_x) < self.image_center_x - 40
-        )
-
-        right_valid = (
-                len(right_x) > 30 and
-                np.min(right_x) > self.image_center_x + 30 and
-                np.mean(right_x) > self.image_center_x + 40
-        )
-
-        # left_fit = self.fit_line_ransac(left_x, left_y)
-        # right_fit = self.fit_line_ransac(right_x, right_y)
-        new_left_fit = self.fit_line_ransac(left_x, left_y)
-        new_right_fit = self.fit_line_ransac(right_x, right_y)
-
-        # after fitting
-        if new_left_fit is not None and abs(new_left_fit[0]) < 0.05:
-            print("[WARN] left slope too flat → rejected")
-            new_left_fit = None
-
-        if new_right_fit is not None and abs(new_right_fit[0]) < 0.05:
-            print("[WARN] right slope too flat → rejected")
-            new_right_fit = None
-
-        # --- 스무딩 적용 (EMA) ---
-        self.alpha = 0.1
-        if new_left_fit is not None and abs(new_left_fit[0]) > 2.5:
-            print("[REJECT] left_fit too steep")
-            new_left_fit = None
-
-        if new_right_fit is not None and abs(new_right_fit[0]) > 2.5:
-            print("[REJECT] right_fit too steep")
-            new_right_fit = None
-
-        # if left_fit is not None:
-        #     left_fit = alpha * self.prev_left_fit + (1 - alpha) * left_fit
-        #     self.prev_left_fit = left_fit
-        # else:
-        #     left_fit = self.prev_left_fit
-        #
-        # if right_fit is not None:
-        #     right_fit = alpha * self.prev_right_fit + (1 - alpha) * right_fit
-        #     self.prev_right_fit = right_fit
-        # else:
-        #     right_fit = self.prev_right_fit
-
-        ploty = np.linspace(0, self.image_height - 1, self.image_height)
-        left_fitx = new_left_fit[0] * ploty + new_left_fit[1] if new_left_fit is not None else None
-        right_fitx = new_right_fit[0] * ploty + new_right_fit[1] if new_right_fit is not None else None
-
-        # overlay = bev.copy()
-        # for i in range(len(ploty)):
-        #     lx = int(left_fitx[i])
-        #     rx = int(right_fitx[i])
-        #     py = int(ploty[i])
-        #
-        #     if 0 <= lx < self.image_width:
-        #         cv2.circle(overlay, (lx, py), 1, (255, 0, 0), -1)
-        #     if 0 <= rx < self.image_width:
-        #         cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
-
-        overlay = bev.copy()
-
-        if left_fitx is not None:
-            valid_left = 0
-            for i in range(len(ploty)):
-                lx = int(left_fitx[i])
-                py = int(ploty[i])
-                if 0 <= lx < self.image_width:
-                    valid_left += 1
-                    cv2.circle(overlay, (lx, py), 1, (255, 0, 0), -1)
-            print(f"[DEBUG] Left lane draw points: {valid_left}")
-
-        if right_fitx is not None:
-            valid_right = 0
-            for i in range(len(ploty)):
-                rx = int(right_fitx[i])
-                py = int(ploty[i])
-                if 0 <= rx < self.image_width:
-                    valid_right += 1
-                    cv2.circle(overlay, (rx, py), 1, (0, 0, 255), -1)
-            print(f"[DEBUG] Right lane draw points: {valid_right}")
-
-        cte_y = int(self.image_height * 0.6)  # 하단 말고 중간쯤에서 계산
-
-        if new_left_fit is not None and new_right_fit is not None:
-            left_x_pos = new_left_fit[0] * cte_y + new_left_fit[1]
-            right_x_pos = new_right_fit[0] * cte_y + new_right_fit[1]
-            lane_center = (left_x_pos + right_x_pos) / 2.0
-            raw_cte = -(lane_center - self.image_center_x)
-            raw_heading = (new_left_fit[0] + new_right_fit[0]) / 2.0
-
-        elif new_left_fit is not None:
-            lane_center = None
-            raw_cte = 0.0  # CTE 안 씀
-            raw_heading = new_left_fit[0]  # 왼쪽 기울기만 조향
-
-        elif new_right_fit is not None:
-            lane_center = None
+        if len(points) == 0:
+            print("[FALLBACK] No line pixels detected.")
+            raw_heading = self.prev_heading_valid
             raw_cte = 0.0
-            raw_heading = new_right_fit[0]  # 오른쪽 기울기만 조향
-
+            overlay = bev.copy()
         else:
-            raw_cte = 0.0
-            raw_heading = 0.0
+            ys, xs = points[:, 0], points[:, 1]
 
-        # left_x_pos = left_fit[0] * self.bottom_y + left_fit[1]
-        # right_x_pos = right_fit[0] * self.bottom_y + right_fit[1]
-        # lane_center = (left_x_pos + right_x_pos) / 2.0
-        #
-        # # --- CTE 및 Heading 계산 + 스무딩 ---
-        # raw_cte = -(lane_center - self.image_center_x)
-        # raw_heading = (left_fit[0] + right_fit[0]) / 2.0
+            # 4. 단일 실선에 대해 RANSAC fitting
+            fit = self.fit_line_ransac(xs, ys)
 
-        cte = 0.5 * self.prev_cte + 0.5 * raw_cte
-        heading = 0.8 * self.prev_heading + 0.2 * raw_heading
+            if fit is None or abs(fit[0]) < 0.05 or abs(fit[0]) > 2.5:
+                print("[REJECT] Invalid or unstable fit → fallback")
+                raw_heading = self.prev_heading_valid
+                raw_cte = 0.0
+            else:
+                current_heading = fit[0]
+                delta = abs(current_heading - self.prev_heading)
 
+                if delta > self.max_slope_jump:
+                    print(f"[REJECT] Heading jump too large: {delta:.3f}")
+                    current_heading = self.prev_heading_valid
+                else:
+                    self.prev_heading_valid = current_heading
+
+                raw_heading = current_heading
+                raw_cte = 0.0  # 실선 하나만 쓰므로 CTE 무의미
+
+            # 5. 시각화
+            ploty = np.linspace(0, self.image_height - 1, self.image_height)
+            fitx = fit[0] * ploty + fit[1] if fit is not None else None
+
+            overlay = bev.copy()
+            if fitx is not None:
+                for i in range(len(ploty)):
+                    fx = int(fitx[i])
+                    fy = int(ploty[i])
+                    if 0 <= fx < self.image_width:
+                        cv2.circle(overlay, (fx, fy), 1, (0, 255, 0), -1)
+            else:
+                overlay = bev.copy()
+
+        # 6. heading smoothing + delta 제한
+        cte = 0.0
+        delta_heading = raw_heading - self.prev_heading
+        delta_heading = np.clip(delta_heading, -self.max_heading_change, self.max_heading_change)
+        heading = self.prev_heading + delta_heading
+
+        # 7. 상태 업데이트
         self.prev_cte = cte
         self.prev_heading = heading
 
-        print(cte)
+        print(f"[STATE] Target={self.current_target}, Heading={heading:.3f}")
         cv2.imshow("lowviewcam", frame)
         cv2.imshow("bev", bev)
         cv2.imshow("Lane Overlay", overlay)
@@ -209,8 +145,7 @@ class LaneDetectV3:
         return {
             'cte': cte,
             'heading': heading,
-            'left_fit': new_left_fit,
-            'right_fit': new_right_fit,
+            'fit': fit,
             'frame': frame,
             'overlay': overlay
         }
