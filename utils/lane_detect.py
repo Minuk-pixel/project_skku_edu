@@ -31,7 +31,7 @@ class LaneDetect:
         # self.source = np.float32([[91, 173], [0, 286], [516, 173], [614, 286]])
         # self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         # self.transform_matrix = cv2.getPerspectiveTransform(source, destination)
-        self.source = np.float32([[225, 142], [171, 215], [405, 142], [459, 215]])
+        self.source = np.float32([[120, 155], [0, 349], [506, 155], [631, 349]])
         self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.transform_matrix = cv2.getPerspectiveTransform(self.source, self.destination)
 

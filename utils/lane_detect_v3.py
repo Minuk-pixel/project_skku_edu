@@ -21,7 +21,7 @@ class LaneDetectV3:
 
         print("[INFO] Arduino serial connected.")
 
-        self.source = np.float32([[120, 155], [0, 349], [506, 155], [631, 349]])
+        self.source = np.float32([[108, 230], [0, 374], [470, 230], [575, 374]])
         # self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.transform_matrix = cv2.getPerspectiveTransform(self.source, self.destination)
@@ -91,13 +91,13 @@ class LaneDetectV3:
         #반대쪽 차선 픽셀이 섞이는 것 방지
         left_valid = (
                 len(left_x) > 40 and
-                np.percentile(left_x, 90) < self.image_center_x + 10
+                np.percentile(left_x, 90) < self.image_center_x - 10
                 # np.mean(left_x) < self.image_center_x
         )
 
         right_valid = (
                 len(right_x) > 40 and
-                np.percentile(right_x, 10) > self.image_center_x - 10
+                np.percentile(right_x, 10) > self.image_center_x + 10
                 # np.mean(right_x) > self.image_center_x
         )
 
