@@ -21,7 +21,8 @@ class LaneDetectV3:
 
         print("[INFO] Arduino serial connected.")
 
-        self.source = np.float32([[128, 304], [0, 440], [465, 304], [577, 440]])
+        self.source = np.float32([[120, 155], [0, 349], [506, 155], [631, 349]])
+        # self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
         self.transform_matrix = cv2.getPerspectiveTransform(self.source, self.destination)
 
@@ -35,6 +36,11 @@ class LaneDetectV3:
         self.alpha = 0.1  # EMA smoothing
         self.prev_cte = 0.0
         self.prev_heading = 0.0
+
+        self.right_curve_hold = 0
+        self.right_curve_hold_max = 600 # 3초 유지 (30fps 기준)
+        self.left_curve_hold = 0
+        self.left_curve_hold_max = 150  # 3초 유지 (30fps 기준)
 
     def fit_line_ransac(self, x, y):
         if len(x) < 10:
@@ -84,15 +90,15 @@ class LaneDetectV3:
 
         #반대쪽 차선 픽셀이 섞이는 것 방지
         left_valid = (
-                len(left_x) > 30 and
-                np.max(left_x) < self.image_center_x - 30 and
-                np.mean(left_x) < self.image_center_x - 40
+                len(left_x) > 40 and
+                np.percentile(left_x, 90) < self.image_center_x + 10
+                # np.mean(left_x) < self.image_center_x
         )
 
         right_valid = (
-                len(right_x) > 30 and
-                np.min(right_x) > self.image_center_x + 30 and
-                np.mean(right_x) > self.image_center_x + 40
+                len(right_x) > 40 and
+                np.percentile(right_x, 10) > self.image_center_x - 10
+                # np.mean(right_x) > self.image_center_x
         )
 
         # left_fit = self.fit_line_ransac(left_x, left_y)
@@ -100,17 +106,48 @@ class LaneDetectV3:
         new_left_fit = self.fit_line_ransac(left_x, left_y)
         new_right_fit = self.fit_line_ransac(right_x, right_y)
 
+        # 기존 valid 조건 사용해서 fit 결과 거르기
+        if not left_valid:
+            new_left_fit = None
+        if not right_valid:
+            new_right_fit = None
+        # print(new_left_fit)
+        # print(new_right_fit)
+
         # after fitting
-        if new_left_fit is not None and abs(new_left_fit[0]) < 0.05:
+        if new_left_fit is not None and abs(new_left_fit[0]) < 0.001:
             print("[WARN] left slope too flat → rejected")
             new_left_fit = None
 
-        if new_right_fit is not None and abs(new_right_fit[0]) < 0.05:
+        if new_right_fit is not None and abs(new_right_fit[0]) < 0.001:
             print("[WARN] right slope too flat → rejected")
             new_right_fit = None
 
+        # FLAT_SLOPE_THRESHOLD = 0.01  # 거의 수평선 (완전한 노이즈)
+        # SOFT_SLOPE_THRESHOLD = 0.2  # 완만한 곡선 허용 여부 기준
+        #
+        # # --- 왼쪽 차선 기울기 검증 ---
+        # if new_left_fit is not None:
+        #     slope = abs(new_left_fit[0])
+        #     if slope < FLAT_SLOPE_THRESHOLD:
+        #         print("[REJECT] left slope too flat (≈ horizontal)")
+        #         new_left_fit = None
+        #     elif slope < SOFT_SLOPE_THRESHOLD and len(left_x) < 100:
+        #         print("[REJECT] left slope soft + too few points")
+        #         new_left_fit = None
+        #
+        # # --- 오른쪽 차선 기울기 검증 ---
+        # if new_right_fit is not None:
+        #     slope = abs(new_right_fit[0])
+        #     if slope < FLAT_SLOPE_THRESHOLD:
+        #         print("[REJECT] right slope too flat (≈ horizontal)")
+        #         new_right_fit = None
+        #     elif slope < SOFT_SLOPE_THRESHOLD and len(right_x) < 100:
+        #         print("[REJECT] right slope soft + too few points")
+        #         new_right_fit = None
+
         # 급격한 기울기 변화 리젝 (차선 끊김 등 노이즈 대응)
-        max_slope_change = 0.5  # 허용 가능한 최대 변화량 (조정 가능)
+        max_slope_change = 0.35  # 허용 가능한 최대 변화량 (조정 가능)
 
         if new_left_fit is not None and self.prev_left_fit is not None:
             if abs(new_left_fit[0] - self.prev_left_fit[0]) > max_slope_change:
@@ -160,35 +197,71 @@ class LaneDetectV3:
 
         cte_y = int(self.image_height * 0.6)  # 하단 말고 중간쯤에서 계산
 
+        MAX_STEER = 1.0  # 조절 가능: 1.0이면 최대 오른쪽, -1.0이면 최대 왼쪽
+
+        if new_left_fit is not None and new_right_fit is not None:
+            left_x_pos = new_left_fit[0] * cte_y + new_left_fit[1]
+            right_x_pos = new_right_fit[0] * cte_y + new_right_fit[1]
+            if abs(right_x_pos - left_x_pos) < 50:  # 거리 기준은 조정 가능
+                print("[REJECT] L/R lane too close — keeping one side only")
+                if len(left_x) > len(right_x):
+                    new_right_fit = None
+                else:
+                    new_left_fit = None
+            # lane_center = (left_x_pos + right_x_pos) / 2.0
+            # raw_cte = -(lane_center - self.image_center_x)
+            # raw_heading = (new_left_fit[0] + new_right_fit[0]) / 2.0
         if new_left_fit is not None and new_right_fit is not None:
             left_x_pos = new_left_fit[0] * cte_y + new_left_fit[1]
             right_x_pos = new_right_fit[0] * cte_y + new_right_fit[1]
             lane_center = (left_x_pos + right_x_pos) / 2.0
             raw_cte = -(lane_center - self.image_center_x)
+            # raw_cte = 0
             raw_heading = (new_left_fit[0] + new_right_fit[0]) / 2.0
-
-        elif new_left_fit is not None:
+            self.prev_heading = raw_heading
+            # self.right_curve_hold = 0  # ✅ reset
+            # self.left_curve_hold = 0  # ✅ reset
+        elif new_left_fit is not None and new_right_fit is None:
             lane_center = None
             raw_cte = 0.0  # CTE 안 씀
-            raw_heading = new_left_fit[0]  # 왼쪽 기울기만 조향
-
-        elif new_right_fit is not None:
-            lane_center = None
+            raw_heading = -MAX_STEER
+            self.prev_heading = raw_heading
+            # self.left_curve_hold += 1
+            # self.right_curve_hold = 0  # ✅ reset
+        # elif self.left_curve_hold > 0 and self.left_curve_hold < self.left_curve_hold_max:
+        #     raw_cte = 0.0
+        #     raw_heading = -MAX_STEER
+        #     self.right_curve_hold = 0
+        #     self.left_curve_hold += 1
+        elif new_right_fit is not None and new_left_fit is None:
             raw_cte = 0.0
-            raw_heading = new_right_fit[0]  # 오른쪽 기울기만 조향
-
+            raw_heading = MAX_STEER
+            self.prev_heading = raw_heading
+            # self.right_curve_hold += 1
+            # self.left_curve_hold = 0  # ✅ reset
+        # elif self.right_curve_hold > 0 and self.right_curve_hold < self.right_curve_hold_max:
+        #     # ✅ 오른쪽 차선만 잠깐 보였다가 사라져도 계속 유지
+        #     raw_cte = 0.0
+        #     raw_heading = MAX_STEER
+        #     self.left_curve_hold = 0  # ✅ reset
+        #     self.right_curve_hold += 1
         else:
             raw_cte = 0.0
-            raw_heading = 0.0
+            raw_heading = self.prev_heading
+            # self.right_curve_hold = 0  # ✅ 완전 reset
+            # self.left_curve_hold = 0
 
 
-        cte = 0.5 * self.prev_cte + 0.5 * raw_cte
-        heading = 0.8 * self.prev_heading + 0.2 * raw_heading
+
+        cte = raw_cte
+        if abs(raw_heading) == MAX_STEER:
+            heading = raw_heading
+        else:
+            heading = 0.5 * self.prev_heading + 0.5 * raw_heading
 
         self.prev_cte = cte
         self.prev_heading = heading
 
-        print(cte)
         cv2.imshow("lowviewcam", frame)
         cv2.imshow("bev", bev)
         cv2.imshow("Lane Overlay", overlay)

@@ -51,8 +51,10 @@ if __name__ == "__main__":
 
             cte = result['cte']
             heading = result['heading']
+            left_valid = result['left_fit']
+            right_valid = result['right_fit']
 
-            angle = fsm.compute_steering_angle(cte, heading)
+            angle = fsm.compute_steering_angle(cte, heading, left_valid, right_valid)
             detector.send_serial_command(f"T{angle:.2f}\n")
             detector.send_serial_command("F")
 

@@ -5,7 +5,7 @@ import numpy as np
 cap = cv2.VideoCapture(cv2.CAP_DSHOW + 2)
 
 # ✅ 수동으로 지정한 source (원본 영상의 4점) & destination (BEV 평면)
-source = np.float32([[128, 304], [0, 440], [465, 304], [577, 440]])
+source = np.float32([[120, 155], [0, 349], [506, 155], [631, 349]])
 destination = np.float32([[0, 0], [0, 520], [440, 0], [440, 520]])
 
 # ✅ 출력 사이즈는 destination 좌표 기준

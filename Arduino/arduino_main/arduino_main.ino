@@ -13,8 +13,7 @@
 //시간측정용 변수
 #define STEER_SPEED_TIME 500
 #define STEER_SPEED_TIME_FAST 500
-#define MOTOR_SPEED_TIME 150
-
+#define MOTOR_SPEED_TIME 120 //120 완전 좋았음
 
 #define POTENTIOMETER_PIN A5
 #define STEER_CENTER_VAL 120    // 왼쪽 85, 오른쪽 66 기준 평균값 좌 134 우 100??
